@@ -92,8 +92,9 @@ func setupHTTPGateway(server *services.Server, port string) {
 			ServiceName: "http_gateway",
 			Timestamp:   time.Now().Unix(),
 		}
-
-		err := notifServer.SendNotificationToClient(notification)
+		//change here to send to all devices of the client instead of only first device
+		// err := notifServer.SendNotificationToClient(notification)
+		err:=notifServer.GetConnectionHandler().SendToFirstDevice(notification)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

@@ -155,6 +155,71 @@ func (h *ConnectionHandler) GetConnectionStats() map[string]interface{} {
 	return stats
 }
 
+func (h *ConnectionHandler) SendToSingleDevice(notification *models.NotificationData, clientID string, deviceID string) error {
+	conn, exists := h.connManager.GetConnection(clientID, deviceID)
+	if !exists {
+		return fmt.Errorf("connection not found for client: %s, device: %s", clientID, deviceID)
+	}
+
+	// Create unique ID for logging and notification
+	uniqueID := models.CreateUniqueID(clientID, deviceID)
+
+	// Check if the device has an active stream
+	if conn.Stream == nil || !conn.IsActive {
+		return fmt.Errorf("device %s has no active stream", uniqueID)
+	}
+
+	// Send notification to the device
+	if err := conn.Stream.Send(notification.ToProto(uniqueID)); err != nil {
+		log.Printf("Failed to send notification to device %s: %v", uniqueID, err)
+		return fmt.Errorf("failed to send notification to device %s: %w", uniqueID, err)
+	}
+
+	// Update device metadata
+	conn.LastNotificationAt = time.Now()
+	conn.NotificationCount++
+
+	log.Printf("Notification sent successfully to device %s (total notifications: %d)",
+		uniqueID, conn.NotificationCount)
+
+	return nil
+}
+
+// SendToFirstDevice sends notification to the first active device of a client
+func (h *ConnectionHandler) SendToFirstDevice(notification *models.NotificationData) error {
+	clientGroup, exists := h.connManager.GetClientGroup(notification.ClientID)
+	if !exists {
+		return fmt.Errorf("no devices found for client: %s", notification.ClientID)
+	}
+
+	devices := clientGroup.GetAllDevices()
+	if len(devices) == 0 {
+		return fmt.Errorf("no devices found for client: %s", notification.ClientID)
+	}
+
+	// Find the first device with an active stream
+	for _, device := range devices {
+		if device.Stream != nil && device.IsActive {
+			// Send notification to the first active device
+			if err := device.Stream.Send(notification.ToProto(device.UniqueID)); err != nil {
+				log.Printf("Failed to send notification to first device %s: %v", device.UniqueID, err)
+				return fmt.Errorf("failed to send notification to first device %s: %w", device.UniqueID, err)
+			}
+
+			// Update device metadata
+			device.LastNotificationAt = time.Now()
+			device.NotificationCount++
+
+			log.Printf("Notification sent successfully to first device %s (total notifications: %d)",
+				device.UniqueID, device.NotificationCount)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no active devices found for client: %s", notification.ClientID)
+}
+
 // SendNotificationToClient sends notification to all devices of a client
 func (h *ConnectionHandler) SendNotificationToClient(notification *models.NotificationData) error {
 	clientGroup, exists := h.connManager.GetClientGroup(notification.ClientID)
